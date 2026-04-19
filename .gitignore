@@ -1,0 +1,33 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+venv/
+.env/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Results
+results/
+*.pth
+*.pt
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data
+data/
+
+# Temporary files
+*.tmp
