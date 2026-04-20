@@ -1,6 +1,7 @@
 import csv
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -9,10 +10,18 @@ import matplotlib.pyplot as plt
 import config
 from utils import ensure_dir
 
-METRICS: list[tuple[str, str | None, str, str]] = [
-    ("train_loss", "val_loss", "Loss", "Loss"),
-    ("train_accuracy", "val_accuracy", "Accuracy", "Accuracy"),
-    ("gradient_norm", None, "Gradient Norm", "L2 Norm"),
+
+class MetricConfig(NamedTuple):
+    train_key: str
+    val_key: str | None
+    title: str
+    ylabel: str
+
+
+METRICS: list[MetricConfig] = [
+    MetricConfig("train_loss", "val_loss", "Loss", "Loss"),
+    MetricConfig("train_accuracy", "val_accuracy", "Accuracy", "Accuracy"),
+    MetricConfig("gradient_norm", None, "Gradient Norm", "L2 Norm"),
 ]
 
 
@@ -36,14 +45,24 @@ def plot_metric_comparison(
     fig, ax = plt.subplots(figsize=(10, 5))
 
     for run_name, history in histories.items():
-        epochs = [int(row["epoch"]) for row in history]
-        train_vals = [float(row[train_key]) for row in history]
+        try:
+            epochs = [int(row["epoch"]) for row in history]
+        except KeyError:
+            raise KeyError(f"Stĺpec 'epoch' nenájdený v histórii '{run_name}'") from None
+
+        try:
+            train_vals = [float(row[train_key]) for row in history]
+        except KeyError:
+            raise KeyError(f"Stĺpec '{train_key}' nenájdený v histórii '{run_name}'") from None
 
         label = f"{run_name} train" if val_key else run_name
         ax.plot(epochs, train_vals, label=label, linewidth=1.5)
 
         if val_key:
-            val_vals = [float(row[val_key]) for row in history]
+            try:
+                val_vals = [float(row[val_key]) for row in history]
+            except KeyError:
+                raise KeyError(f"Stĺpec '{val_key}' nenájdený v histórii '{run_name}'") from None
             ax.plot(epochs, val_vals, label=f"{run_name} val", linewidth=1.5, linestyle="--")
 
     ax.set_title(title)
@@ -74,5 +93,8 @@ def plot_all(run_names: list[str]) -> None:
         print("Žiadne histórie na vykreslenie.")
         return
 
-    for train_key, val_key, title, ylabel in METRICS:
-        plot_metric_comparison(histories, train_key, val_key, title, ylabel, output_dir)
+    for metric in METRICS:
+        plot_metric_comparison(
+            histories, metric.train_key, metric.val_key,
+            metric.title, metric.ylabel, output_dir,
+        )

@@ -10,18 +10,19 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.utils.data import DataLoader
 
 import config
 from evaluate import evaluate_model
 from models import get_model
 from plot import plot_all
-from train import evaluate, get_data_loaders, train_one_epoch
+from train import evaluate as evaluate_epoch, get_data_loaders, train_one_epoch
 from utils import (
+    append_history_row,
     ensure_dir,
     get_device,
     get_peak_memory_mb,
     reset_peak_memory,
-    save_history_to_csv,
     set_seed,
 )
 
@@ -52,8 +53,8 @@ def run_experiment(
     model_name: str,
     run_name: str,
     lr: float,
-    train_loader: torch.utils.data.DataLoader,
-    val_loader: torch.utils.data.DataLoader,
+    train_loader: DataLoader,
+    val_loader: DataLoader,
     device: str,
 ) -> float:
     print(f"\n{'=' * 60}")
@@ -65,8 +66,7 @@ def run_experiment(
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=config.WEIGHT_DECAY)
     scheduler = CosineAnnealingLR(optimizer, T_max=config.NUM_EPOCHS, eta_min=config.ETA_MIN)
 
-    history: list[dict[str, int | float]] = []
-    best_val_acc = 0.0
+    best_val_acc = -1.0
     history_path = config.LOGS_DIR / f"{run_name}_history.csv"
 
     total_start = time.time()
@@ -78,7 +78,7 @@ def run_experiment(
         train_loss, train_acc, grad_norm = train_one_epoch(
             model, train_loader, criterion, optimizer, device, epoch, config.NUM_EPOCHS
         )
-        val_loss, val_acc = evaluate(
+        val_loss, val_acc = evaluate_epoch(
             model, val_loader, criterion, device, epoch, config.NUM_EPOCHS
         )
 
@@ -97,8 +97,7 @@ def run_experiment(
             "epoch_time_sec": round(epoch_time, 2),
             "peak_memory_mb": round(peak_memory_mb, 2),
         }
-        history.append(row)
-        save_history_to_csv(history, history_path)
+        append_history_row(row, history_path)
 
         print(
             f"Epoch {epoch}/{config.NUM_EPOCHS} | "
@@ -143,7 +142,7 @@ def main() -> None:
 
     summary: list[SummaryRow] = []
 
-    print("\n\n=== ANALÝZA CHÝB ===")
+    print("\n\n=== TRÉNING A ANALÝZA CHÝB ===")
     for exp in EXPERIMENTS:
         best_val_acc = run_experiment(
             model_name=exp["model_name"],
@@ -176,7 +175,7 @@ def main() -> None:
     with open(summary_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(
             f,
-            fieldnames=["run_name", "model", "lr", "best_val_acc", "test_acc"],
+            fieldnames=list(SummaryRow.__annotations__.keys()),
         )
         writer.writeheader()
         writer.writerows(summary)

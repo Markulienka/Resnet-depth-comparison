@@ -49,20 +49,17 @@ def compute_gradient_norm(model: nn.Module) -> float:
     """
     Vypočíta L2 normu gradientov všetkých parametrov modelu.
     """
-    total_norm = 0.0
-    for param in model.parameters():
-        if param.grad is not None:
-            param_norm = param.grad.norm(2).item()
-            total_norm += param_norm ** 2
-    return total_norm ** 0.5
+    norms = [p.grad.detach().norm(2) ** 2 for p in model.parameters() if p.grad is not None]
+    return torch.stack(norms).sum().sqrt().item() if norms else 0.0
 
 
 def get_peak_memory_mb(device: str) -> float:
     """
     Vráti peak využitie GPU pamäte v MB od posledného resetu.
-    Ak sa používa CPU, vráti 0.
+    Pre MPS vracia aktuálne alokovanú pamäť (peak API nie je dostupné).
+    Pre CPU vráti 0.
     """
-    if device == "cuda":
+    if device.startswith("cuda"):
         return torch.cuda.max_memory_allocated() / (1024 ** 2)
     if device == "mps":
         return torch.mps.current_allocated_memory() / (1024 ** 2)
@@ -72,23 +69,27 @@ def get_peak_memory_mb(device: str) -> float:
 def reset_peak_memory(device: str) -> None:
     """
     Resetuje štatistiku peak GPU pamäte pred novou epochou.
+    Pre MPS reset nie je dostupný — štatistika sa neaktualizuje.
     """
-    if device == "cuda":
+    if device.startswith("cuda"):
         torch.cuda.reset_peak_memory_stats()
 
 
 # --- Výstup ---
 
-def save_history_to_csv(history: list[dict[str, int | float]], filepath: Path | str) -> None:
+def append_history_row(
+    row: dict[str, int | float],
+    filepath: Path | str,
+) -> None:
     """
-    Uloží históriu tréningu do CSV súboru.
+    Pripíše jeden riadok do CSV histórie.
+    Hlavičku zapíše automaticky ak súbor neexistuje alebo je prázdny.
     """
-    if not history:
-        return
-
-    fieldnames = list(history[0].keys())
-
-    with open(filepath, mode="w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(history)
+    filepath = Path(filepath)
+    write_header = not filepath.exists() or filepath.stat().st_size == 0
+    mode = "w" if write_header else "a"
+    with open(filepath, mode=mode, newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(row.keys()))
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)

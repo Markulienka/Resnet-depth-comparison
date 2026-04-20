@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.optim import Optimizer
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
 from tqdm import tqdm
 
@@ -27,28 +27,29 @@ def get_data_loaders(device: str) -> tuple[DataLoader, DataLoader, DataLoader]:
         transforms.Normalize(config.CIFAR10_MEAN, config.CIFAR10_STD),
     ])
 
-    full_train = datasets.CIFAR10(
+    train_base = datasets.CIFAR10(
         root=str(config.DATA_DIR),
         train=True,
         download=True,
         transform=train_transform,
     )
-
-    val_size = int(len(full_train) * config.VAL_SPLIT)
-    train_size = len(full_train) - val_size
-    train_dataset, val_dataset = random_split(
-        full_train,
-        [train_size, val_size],
-        generator=torch.Generator().manual_seed(config.SEED),
-    )
-
-    # Val set používa eval transform (bez augmentácie)
-    val_dataset.dataset = datasets.CIFAR10(
+    val_base = datasets.CIFAR10(
         root=str(config.DATA_DIR),
         train=True,
         download=False,
         transform=eval_transform,
     )
+
+    val_size = int(len(train_base) * config.VAL_SPLIT)
+    all_indices = torch.randperm(
+        len(train_base),
+        generator=torch.Generator().manual_seed(config.SEED),
+    ).tolist()
+    val_indices = all_indices[:val_size]
+    train_indices = all_indices[val_size:]
+
+    train_dataset = Subset(train_base, train_indices)
+    val_dataset = Subset(val_base, val_indices)
 
     test_dataset = datasets.CIFAR10(
         root=str(config.DATA_DIR),
@@ -57,7 +58,7 @@ def get_data_loaders(device: str) -> tuple[DataLoader, DataLoader, DataLoader]:
         transform=eval_transform,
     )
 
-    pin = device == "cuda"
+    pin = device.startswith("cuda")
 
     train_loader = DataLoader(
         train_dataset,
@@ -118,7 +119,7 @@ def train_one_epoch(
         grad_norm = compute_gradient_norm(model)
         optimizer.step()
 
-        preds = outputs.detach().argmax(dim=1)
+        preds = outputs.argmax(dim=1)
         batch_correct = (preds == labels).sum().item()
         batch_size = labels.size(0)
 
@@ -165,7 +166,7 @@ def evaluate(
         outputs = model(images)
         loss = criterion(outputs, labels)
 
-        preds = outputs.detach().argmax(dim=1)
+        preds = outputs.argmax(dim=1)
         batch_correct = (preds == labels).sum().item()
         batch_size = labels.size(0)
 

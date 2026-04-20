@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from torch.utils.data import DataLoader
 
 import config
 from models import get_model
@@ -16,6 +17,9 @@ CIFAR10_CLASSES = [
     "airplane", "automobile", "bird", "cat", "deer",
     "dog", "frog", "horse", "ship", "truck",
 ]
+
+_DENORM_MEAN = np.array(config.CIFAR10_MEAN).reshape(3, 1, 1)
+_DENORM_STD = np.array(config.CIFAR10_STD).reshape(3, 1, 1)
 
 
 def load_checkpoint(run_name: str, model_name: str, device: str) -> torch.nn.Module:
@@ -33,7 +37,7 @@ def load_checkpoint(run_name: str, model_name: str, device: str) -> torch.nn.Mod
 @torch.no_grad()
 def collect_predictions(
     model: torch.nn.Module,
-    loader: torch.utils.data.DataLoader,
+    loader: DataLoader,
     device: str,
 ) -> tuple[np.ndarray, np.ndarray, list[np.ndarray], list[tuple[int, int]]]:
     all_preds = []
@@ -42,8 +46,8 @@ def collect_predictions(
     all_image_labels: list[tuple[int, int]] = []
 
     for images, labels in loader:
+        images_np = images.numpy()
         images = images.to(device)
-        images_cpu = images.cpu()
         outputs = model(images)
         preds = outputs.argmax(dim=1).cpu().numpy()
         labels_np = labels.numpy()
@@ -54,8 +58,12 @@ def collect_predictions(
         wrong_mask = preds != labels_np
         for i, wrong in enumerate(wrong_mask):
             if wrong:
-                all_images.append(images_cpu[i].numpy())
+                all_images.append(images_np[i])
                 all_image_labels.append((int(labels_np[i]), int(preds[i])))
+
+    if not all_preds:
+        empty = np.array([], dtype=np.int64)
+        return empty, empty, [], []
 
     return (
         np.concatenate(all_preds),
@@ -119,7 +127,7 @@ def save_per_class_accuracy(
         total = matrix[i].sum()
         correct = matrix[i][i]
         acc = correct / total if total > 0 else 0.0
-        rows.append({"class": class_name, "correct": correct, "total": total, "accuracy": round(acc, 4)})
+        rows.append({"class": class_name, "correct": int(correct), "total": int(total), "accuracy": round(acc, 4)})
 
     rows.sort(key=lambda r: r["accuracy"])
 
@@ -137,10 +145,7 @@ def save_per_class_accuracy(
 
 
 def denormalize(image: np.ndarray) -> np.ndarray:
-    mean = np.array(config.CIFAR10_MEAN).reshape(3, 1, 1)
-    std = np.array(config.CIFAR10_STD).reshape(3, 1, 1)
-    image = image * std + mean
-    return np.clip(image.transpose(1, 2, 0), 0, 1)
+    return np.clip((image * _DENORM_STD + _DENORM_MEAN).transpose(1, 2, 0), 0, 1)
 
 
 def save_misclassified_samples(
@@ -158,8 +163,8 @@ def save_misclassified_samples(
     cols = 5
     rows = (len(samples) + cols - 1) // cols
 
-    fig, axes = plt.subplots(rows, cols, figsize=(cols * 2.5, rows * 2.5))
-    axes = np.array(axes).reshape(-1)
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * 2.5, rows * 2.5), squeeze=False)
+    axes = axes.flatten()
 
     for i, (img, (true_label, pred_label)) in enumerate(samples):
         axes[i].imshow(denormalize(img))
@@ -185,7 +190,7 @@ def save_misclassified_samples(
 def evaluate_model(
     run_name: str,
     model_name: str,
-    test_loader: torch.utils.data.DataLoader,
+    test_loader: DataLoader,
     device: str,
 ) -> float:
     output_dir = config.RESULTS_DIR / "analysis"
@@ -195,6 +200,10 @@ def evaluate_model(
 
     model = load_checkpoint(run_name, model_name, device)
     preds, labels, wrong_images, wrong_labels = collect_predictions(model, test_loader, device)
+
+    if len(preds) == 0:
+        print("Varovanie: test loader je prázdny, accuracy = 0.0")
+        return 0.0
 
     total_acc = (preds == labels).mean()
     print(f"Test accuracy: {total_acc:.4%}")
