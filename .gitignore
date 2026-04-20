@@ -19,10 +19,9 @@ Thumbs.db
 *.log
 
 # Results
-results/*
 *.pth
 *.pt
-!results/logs/
+
 
 # Jupyter
 .ipynb_checkpoints/
