@@ -32,6 +32,3 @@ data/
 
 # Temporary files
 *.tmp
-
-# Report
-report/
